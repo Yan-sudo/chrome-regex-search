@@ -1,86 +1,53 @@
 # Natural Language Page Search
 
-A Chrome extension that lets you search any webpage using plain English. Describe what you're looking for and the extension converts your query into a regex pattern, highlights all matches, and lets you navigate between them.
+A Chrome extension that lets you search any webpage using natural language in any language (Chinese, English, etc.). Powered by **Google Gemini AI** — describe what you're looking for and the AI generates a precise regex pattern, highlights all matches, and lets you navigate between them.
 
-## Install
+For example, typing "搜索MU单独出现的场景" generates `\bMU\b` — matching only standalone "MU", not "MMUU".
+
+## Setup
 
 1. Open `chrome://extensions` in Chrome
 2. Enable **Developer mode** (top-right toggle)
 3. Click **Load unpacked** and select this project folder
-4. The extension icon appears in your toolbar — click it on any page to start searching
+4. Click the extension icon, then click the gear icon to open **Settings**
+5. Enter your Gemini API key (get one free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey))
+6. Choose a model (Gemini 2.0 Flash recommended)
 
 ## Usage
 
-Open the popup and type what you're looking for:
+Open the popup on any page and describe what you want to find — in any language:
 
-| You type | What it finds |
-|----------|--------------|
-| `email addresses` | All email addresses on the page |
-| `phone numbers` | US phone numbers (with or without country code) |
-| `urls` | All HTTP/HTTPS links in page text |
-| `prices` | Dollar amounts like $9.99, $1,200 |
-| `dates in 2024` | Date strings containing the year 2024 |
-| `emails from gmail.com` | Only @gmail.com addresses |
-| `words starting with "pre"` | prefix, preview, prepare, etc. |
+| You type | What it matches |
+|----------|----------------|
+| `搜索MU单独出现的` | Only standalone "MU", not "MMUU" |
+| `找出所有邮箱地址` | Email addresses |
+| `页面中的手机号` | Phone numbers |
+| `find all prices` | Dollar amounts like $9.99 |
+| `URLs starting with https` | HTTPS links |
+| `dates in 2024` | Dates containing 2024 |
 | `words ending with "tion"` | action, nation, function, etc. |
-| `words containing "script"` | JavaScript, typescript, scripting, etc. |
-| `hello or world or goodbye` | Any of the three words |
-| `between header and footer` | All text between "header" and "footer" |
-| `zip codes` | 5-digit and ZIP+4 postal codes |
-| `percentages` | Values like 50%, 3.14% |
-| `all caps words` | Acronyms and shouted words (NASA, README) |
-| `hashtags` | Twitter/social-style #hashtags |
-| `hex colors` | Color codes like #ff0 or #1a2b3c |
-| `quoted strings` | Text inside single or double quotes |
-| `ip addresses` | IPv4 addresses |
-| `json keys` | Keys in JSON-formatted text |
-| `/\bfoo\d+/gi` | Raw regex — pass through directly |
-| `anything else` | Falls back to literal case-insensitive search |
+| `大写的缩写词` | All-caps acronyms like NASA, API |
+| `/\bfoo\d+/gi` | Raw regex — passed through directly |
 
-The generated regex pattern is displayed below your query so you can see exactly what's being matched.
+The AI understands intent: "only exact matches", "as a whole word", "not inside other words", case sensitivity, and more.
 
 ### Controls
 
 - **Search** — run the query (or press Enter)
-- **Retry** — re-run the same query (useful after page content changes)
-- **Clear** — remove all highlights from the page
-- **Up/Down arrows** — navigate between matches (scrolls to each one)
+- **Retry** — re-run the same query
+- **Clear** — remove all highlights
+- **Up/Down arrows** — navigate between matches
 
-## Supported pattern templates
+### Settings
 
-The NLP engine recognizes these categories out of the box:
+Click the gear icon to configure:
 
-- Email addresses
-- Phone numbers
-- URLs / links
-- IP addresses (IPv4)
-- Dates (multiple formats)
-- Times / timestamps
-- Prices / dollar amounts
-- Hashtags
-- Hex color codes
-- Numbers / digits
-- ZIP codes
-- Percentages
-- Capitalized words / proper nouns
-- ALL-CAPS words / acronyms
-- HTML tags
-- JSON keys
-- Parenthesized text
-- Quoted strings
-- Sentences
+- **API Key** — your Gemini API key
+- **Model** — choose between Flash (fast), Flash Lite (fastest), or Pro (most capable)
 
-### Modifiers
+### Fallback
 
-Modifiers refine template patterns:
-
-- **Year**: `dates in 2024` — filters dates by year
-- **Domain**: `emails from example.com`, `urls from github.com` — scopes to a domain
-- **Starts with**: `urls starting with api` — URL prefix filtering
-
-### Fallback behavior
-
-If no template or modifier matches, the input is treated as a literal case-insensitive text search — so the extension always finds *something*.
+If the API is unavailable or no key is set, the extension falls back to a built-in rule-based NLP engine that supports common patterns (emails, phones, URLs, dates, prices, etc.).
 
 ## Project structure
 
@@ -88,18 +55,22 @@ If no template or modifier matches, the input is treated as a literal case-insen
 ├── manifest.json       # Chrome extension manifest (V3)
 ├── popup.html          # Extension popup UI
 ├── popup.css           # Popup styles
-├── popup.js            # Popup controller and messaging
-├── nlp-to-regex.js     # Natural language → regex conversion engine
-├── content.js          # Content script — DOM walking and highlighting
-├── content.css         # Highlight styles (yellow matches, orange active)
+├── popup.js            # Popup controller — orchestrates search flow
+├── gemini-api.js       # Gemini AI → regex conversion
+├── nlp-to-regex.js     # Local rule-based fallback converter
+├── content.js          # Content script — DOM highlighting
+├── content.css         # Highlight styles
+├── options.html        # Settings page
+├── options.js          # Settings logic (API key storage)
 └── icons/              # Extension icons (16, 48, 128px)
 ```
 
 ## How it works
 
-1. User types a natural language query in the popup
-2. `nlp-to-regex.js` converts it to a regex pattern via keyword matching and rule-based templates
-3. The popup sends the pattern to `content.js` running in the active tab
-4. `content.js` walks all visible text nodes in the DOM, runs the regex, and wraps matches in custom `<nlps-mark>` highlight elements
-5. Navigation buttons scroll between highlights, marking the active one in orange
-6. Clearing removes all highlight elements and restores the original text nodes
+1. User types a natural language query in any language
+2. `popup.js` sends the query to **Gemini API** via `gemini-api.js`
+3. Gemini returns a JSON object with `{ pattern, flags, label }`
+4. The regex is validated, then sent to `content.js` in the active tab
+5. `content.js` walks all visible text nodes, runs the regex, and wraps matches in highlight elements
+6. Navigation buttons scroll between matches (yellow = match, orange = active)
+7. If Gemini is unavailable, `nlp-to-regex.js` provides a local rule-based fallback

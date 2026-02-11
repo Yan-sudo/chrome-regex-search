@@ -1,10 +1,14 @@
-/* global NLPToRegex, chrome */
+/* global NLPToRegex, GeminiRegex, chrome */
 
 document.addEventListener('DOMContentLoaded', () => {
   const searchInput = document.getElementById('search-input');
   const searchBtn = document.getElementById('search-btn');
   const retryBtn = document.getElementById('retry-btn');
   const clearBtn = document.getElementById('clear-btn');
+  const settingsBtn = document.getElementById('settings-btn');
+  const openOptionsLink = document.getElementById('open-options-link');
+  const noKeyBanner = document.getElementById('no-key-banner');
+  const loadingSection = document.getElementById('loading-section');
   const queryDisplay = document.getElementById('query-display');
   const generatedQuery = document.getElementById('generated-query');
   const resultsSection = document.getElementById('results-section');
@@ -18,8 +22,42 @@ document.addEventListener('DOMContentLoaded', () => {
   let lastQuery = '';
   let totalMatches = 0;
   let currentIndex = 0;
+  let searching = false;
+
+  // Cached settings
+  let apiKey = '';
+  let geminiModel = '';
+
+  // --- Load settings and check API key ---
+  chrome.storage.sync.get(['geminiApiKey', 'geminiModel'], (data) => {
+    apiKey = data.geminiApiKey || '';
+    geminiModel = data.geminiModel || '';
+    if (!apiKey) {
+      noKeyBanner.classList.remove('hidden');
+    }
+  });
+
+  // Listen for storage changes (user saves key while popup is open)
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.geminiApiKey) {
+      apiKey = changes.geminiApiKey.newValue || '';
+      noKeyBanner.classList.toggle('hidden', !!apiKey);
+    }
+    if (changes.geminiModel) {
+      geminiModel = changes.geminiModel.newValue || '';
+    }
+  });
 
   // --- Event listeners ---
+
+  settingsBtn.addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+  });
+
+  openOptionsLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    chrome.runtime.openOptionsPage();
+  });
 
   searchBtn.addEventListener('click', () => performSearch());
   retryBtn.addEventListener('click', () => performSearch());
@@ -42,7 +80,6 @@ document.addEventListener('DOMContentLoaded', () => {
   prevBtn.addEventListener('click', () => navigate(-1));
   nextBtn.addEventListener('click', () => navigate(1));
 
-  // Keyboard nav for up/down arrows while popup is focused
   document.addEventListener('keydown', (e) => {
     if (totalMatches === 0) return;
     if (e.key === 'ArrowUp' || (e.key === 'Enter' && e.shiftKey)) {
@@ -54,25 +91,68 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Focus input on popup open
   searchInput.focus();
 
   // --- Core functions ---
 
-  function performSearch() {
+  async function performSearch() {
     const query = searchInput.value.trim();
-    if (!query) return;
+    if (!query || searching) return;
 
     lastQuery = query;
     hideAll();
 
-    const result = NLPToRegex.convert(query);
-    if (!result) {
-      showError('Could not understand the query. Try rephrasing.');
-      retryBtn.disabled = false;
+    // If user typed a raw regex, use local converter directly (no API needed)
+    const rawRegex = query.match(/^\/(.+)\/([gimsuy]*)$/);
+    if (rawRegex) {
+      const result = { pattern: rawRegex[1], flags: rawRegex[2] || 'gi', label: 'Raw regex' };
+      applyResult(result);
       return;
     }
 
+    // Try Gemini API first, fall back to local NLP
+    if (apiKey) {
+      searching = true;
+      searchBtn.disabled = true;
+      loadingSection.classList.remove('hidden');
+
+      try {
+        const result = await GeminiRegex.convert(query, apiKey, geminiModel);
+        hideAll();
+        applyResult(result);
+      } catch (err) {
+        hideAll();
+        if (err.message === 'NO_API_KEY' || err.message === 'API_KEY_INVALID') {
+          showError('Invalid API key. Please check Settings.');
+          noKeyBanner.classList.remove('hidden');
+        } else {
+          // Fall back to local NLP on API error
+          const fallback = NLPToRegex.convert(query);
+          if (fallback) {
+            applyResult(fallback, true);
+          } else {
+            showError(err.message);
+          }
+        }
+      } finally {
+        searching = false;
+        searchBtn.disabled = false;
+        retryBtn.disabled = false;
+      }
+    } else {
+      // No API key — use local NLP
+      const result = NLPToRegex.convert(query);
+      if (!result) {
+        showError('Could not understand the query. Try rephrasing or set up a Gemini API key in Settings.');
+        retryBtn.disabled = false;
+        return;
+      }
+      applyResult(result);
+      retryBtn.disabled = false;
+    }
+  }
+
+  function applyResult(result, isFallback) {
     // Validate the generated regex
     try {
       new RegExp(result.pattern, result.flags);
@@ -82,12 +162,11 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // Show the generated pattern
-    generatedQuery.textContent = `/${result.pattern}/${result.flags}  —  ${result.label}`;
+    const suffix = isFallback ? '  (fallback — local)' : '';
+    generatedQuery.textContent = `/${result.pattern}/${result.flags}  —  ${result.label}${suffix}`;
     queryDisplay.classList.remove('hidden');
     retryBtn.disabled = false;
 
-    // Send to content script
     sendToContent({
       action: 'search',
       pattern: result.pattern,
@@ -107,21 +186,18 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!tabs[0]) return;
       chrome.tabs.sendMessage(tabs[0].id, message, (response) => {
         if (chrome.runtime.lastError) {
-          // Content script might not be injected yet; inject it manually
           chrome.scripting.executeScript(
             {
               target: { tabId: tabs[0].id },
               files: ['content.js'],
             },
             () => {
-              // Also inject CSS
               chrome.scripting.insertCSS(
                 {
                   target: { tabId: tabs[0].id },
                   files: ['content.css'],
                 },
                 () => {
-                  // Retry the message
                   chrome.tabs.sendMessage(tabs[0].id, message, handleResponse);
                 }
               );
@@ -158,6 +234,8 @@ document.addEventListener('DOMContentLoaded', () => {
     queryDisplay.classList.add('hidden');
     resultsSection.classList.add('hidden');
     errorSection.classList.add('hidden');
+    loadingSection.classList.add('hidden');
+    noKeyBanner.classList.toggle('hidden', !!apiKey);
     totalMatches = 0;
     currentIndex = 0;
   }
