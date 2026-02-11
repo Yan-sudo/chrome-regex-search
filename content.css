@@ -1,0 +1,16 @@
+/* Highlight styles for matched text on the page */
+
+nlps-mark.nlps-highlight {
+  background-color: #fde68a;
+  color: inherit;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.4);
+  padding: 0 1px;
+}
+
+nlps-mark.nlps-highlight-active {
+  background-color: #fb923c;
+  box-shadow: 0 0 0 2px rgba(251, 146, 60, 0.6);
+  outline: 2px solid #ea580c;
+  outline-offset: 1px;
+}

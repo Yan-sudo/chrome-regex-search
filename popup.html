@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Natural Language Search</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Page Search</h1>
+    <div class="search-section">
+      <textarea id="search-input" placeholder="Describe what you're looking for...&#10;e.g. &quot;email addresses&quot;, &quot;phone numbers&quot;, &quot;URLs starting with https&quot;, &quot;dates in 2024&quot;" rows="3"></textarea>
+      <div class="button-row">
+        <button id="search-btn" class="btn btn-primary">Search</button>
+        <button id="retry-btn" class="btn btn-secondary" disabled>Retry</button>
+        <button id="clear-btn" class="btn btn-ghost">Clear</button>
+      </div>
+    </div>
+
+    <div id="query-display" class="query-display hidden">
+      <div class="query-label">Generated pattern:</div>
+      <code id="generated-query"></code>
+    </div>
+
+    <div id="results-section" class="results-section hidden">
+      <div class="results-header">
+        <span id="match-count">0 matches</span>
+        <div class="nav-buttons">
+          <button id="prev-btn" class="btn btn-nav" title="Previous match">&uarr;</button>
+          <span id="current-match">0/0</span>
+          <button id="next-btn" class="btn btn-nav" title="Next match">&darr;</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="error-section" class="error-section hidden">
+      <span id="error-message"></span>
+    </div>
+  </div>
+
+  <script src="nlp-to-regex.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
